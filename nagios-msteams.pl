@@ -21,6 +21,7 @@ use HTTP::Request::Common qw(POST);
 use HTTP::Status qw(is_client_error);
 use LWP::UserAgent;
 use URI::Escape;
+use Encode qw(decode);
 use JSON;
 
 my %event;
@@ -52,8 +53,9 @@ or die("Error in command line arguments\n");
 #
 while ((my $k, my $v) = each %ENV) {
     next unless $k =~ /^(?:NAGIOS|ICINGA)_(.*)$/;
-    $nagios{$1} = $v;
-    print STDERR "$1 is $nagios{$1}\n";
+    # environment values are UTF-8 bytes; decode so the JSON encoder does not encode them twice
+    $nagios{$1} = decode('UTF-8', $v);
+    print STDERR "$1 is $v\n";
 }
 
 #
