@@ -13,7 +13,12 @@ These perl modules need to be installed.
 
 ## usage
 
-`--webhook` is required option.
+`--webhook` or `--webhook_file` is required. `--webhook_file` names a file whose first line is the webhook URL;
+use it in production so the URL (a credential) is not on the command line, where `ps` and logs can show it.
+Make the file readable only by the Nagios user (`chmod 600`).
+If the file is missing, unreadable or empty, the script prints one line and exits 1.
+The request and response are logged on stderr with the webhook path and query (which hold the signature)
+replaced by `/***`, so only the webhook host is shown; this includes environment macros that carry the URL.
 `--nagios_url` to add "View Host" / "View Service" links in the notification.
 
 The script exits 0 when the webhook answers 2xx. Otherwise it prints one line (webhook host and HTTP status) and
