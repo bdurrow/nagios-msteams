@@ -20,6 +20,7 @@ use Getopt::Long;
 use HTTP::Request::Common qw(POST);
 use HTTP::Status qw(is_client_error);
 use LWP::UserAgent;
+use URI;
 use URI::Escape;
 use Encode qw(decode);
 use JSON;
@@ -147,3 +148,10 @@ print STDERR "Request:\n$s\n";
 my $resp = $ua->request($req);
 $s = $resp->as_string;
 print STDERR "Response:\n$s\n";
+
+if (not $resp->is_success) {
+    # name only the host: the full webhook URL is a credential
+    my $host = eval { URI->new($webhook)->host } // "webhook";
+    print "Teams POST to $host failed: " . $resp->status_line . "\n";
+    exit 1;
+}
