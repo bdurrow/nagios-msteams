@@ -13,13 +13,17 @@ These perl modules need to be installed.
 
 ## usage
 
-`--webhook` is required option.
+`--webhook` or `--webhook_file` is required. `--webhook_file` names a file whose first line is the webhook URL;
+use it in production so the URL (a credential) is not on the command line, where `ps` and logs can show it.
+Make the file readable only by the Nagios user (`chmod 600`).
+If the file is missing, unreadable or empty, the script prints one line and exits 1.
 `--nagios_url` to add "View Host" / "View Service" links in the notification.
 `--card adaptive|messagecard` selects the payload. The default, `adaptive`, is an Adaptive Card (version 1.4) for
 Teams Workflows webhooks; `messagecard` sends the old Office 365 connector MessageCard (Workflows show it without buttons).
 
 The script exits 0 when the webhook answers 2xx. Otherwise it prints one line (webhook host and HTTP status) and
-exits 1. The full request and response are logged on stderr.
+exits 1. The request and response are logged on stderr, with the webhook path and query (which hold the
+signature) replaced by `/***` everywhere in that log (only the webhook host is shown), including environment macros that carry the URL.
 
 ```
 export NAGIOS_HOSTALIAS="hoge101" NAGIOS_SERVICEDESC="http" NAGIOS_SERVICESTATE="WARNING" NAGIOS_SERVICEOUTPUT="test output"
@@ -57,7 +61,7 @@ must be set in nagios.cfg):
 ```
 define command {
     command_name    notify-service-by-teams
-    command_line    /usr/local/nagios/libexec/nagios-msteams.pl --webhook '$_CONTACTWEBHOOKURL$' --nagios_url 'https://nagios.example.com/nagios'
+    command_line    /usr/local/nagios/libexec/nagios-msteams.pl --webhook_file '/etc/nagios/teams-webhooks/$CONTACTNAME$.url' --nagios_url 'https://nagios.example.com/nagios'
 }
 ```
 
