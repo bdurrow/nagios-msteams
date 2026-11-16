@@ -20,6 +20,7 @@ use Getopt::Long;
 use HTTP::Request::Common qw(POST);
 use HTTP::Status qw(is_client_error);
 use LWP::UserAgent;
+use URI;
 use JSON;
 
 my %event;
@@ -27,7 +28,9 @@ my %nagios;
 my @sections;
 my @actions;
 my @targets;
-my $webhook = "https://outlook.office365.com/webhook/MISSING";
+my $webhook_missing = "https://outlook.office365.com/webhook/MISSING";
+my $webhook = $webhook_missing;
+my $webhook_file = "";
 my $nagios_url = "";
 my %color = ( 'OK' => '008000', 'WARNING' => 'ffff00', 'UNKNOWN' => '808080','CRITICAL' => 'ff0000',
               'UP' => '008000', 'DOWN' => 'ff0000', 'UNREACHABLE' => 'ff8700');
@@ -44,8 +47,36 @@ $nagios{'HOSTNOTES'} = "not defined";
 #
 # Get command-line options
 #
-GetOptions ("webhook=s" => \$webhook, "nagios_url=s" => \$nagios_url )
+GetOptions ("webhook=s" => \$webhook, "webhook_file=s" => \$webhook_file, "nagios_url=s" => \$nagios_url )
 or die("Error in command line arguments\n");
+
+# the webhook URL is a credential: --webhook_file keeps it off the command line (ps, logs)
+if ($webhook_file ne '') {
+    die("Use --webhook or --webhook_file, not both\n") if $webhook ne $webhook_missing;
+    # one status line and exit 1, so Nagios logs a failed notification
+    my $line;
+    if (open(my $fh, '<', $webhook_file)) {
+      $line = <$fh> // "";
+      close($fh);
+    } else {
+      print "Cannot read --webhook_file $webhook_file: $!\n";
+      exit 1;
+    }
+    $line =~ s/^\s+|\s+$//g;
+    if (not length($line)) {
+      print "--webhook_file $webhook_file is empty\n";
+      exit 1;
+    }
+    $webhook = $line;
+}
+
+# hide the webhook path and query (they hold the signature) in everything logged
+my $webhook_path = eval { URI->new($webhook)->path_query } // "";
+sub mask_webhook {
+    my ($text) = @_;
+    $text =~ s/\Q$webhook_path\E/\/***/g if length($webhook_path) > 1;
+    return $text;
+}
 
 #
 # Read Nagios events
@@ -53,7 +84,7 @@ or die("Error in command line arguments\n");
 while ((my $k, my $v) = each %ENV) {
     next unless $k =~ /^(?:NAGIOS|ICINGA)_(.*)$/;
     $nagios{$1} = $v;
-    print STDERR "$1 is $nagios{$1}\n";
+    print STDERR mask_webhook("$1 is $nagios{$1}") . "\n";
 }
 
 #
@@ -113,8 +144,8 @@ $req->header('Content-Type' => 'application/json');
 $req->content($json);
 
 my $s = $req->as_string;
-print STDERR "Request:\n$s\n";
+print STDERR mask_webhook("Request:\n$s") . "\n";
 
 my $resp = $ua->request($req);
 $s = $resp->as_string;
-print STDERR "Response:\n$s\n";
+print STDERR mask_webhook("Response:\n$s") . "\n";
