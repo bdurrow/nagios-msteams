@@ -9,11 +9,15 @@ These perl modules need to be installed.
  - LWP::UserAgent
  - LWP::Protocol::https
  - JSON
+ - URI (installed with LWP)
 
 ## usage
 
 `--webhook` is required option.
 `--nagios_url` to add a link in the notification.
+
+The script exits 0 when the webhook answers 2xx. Otherwise it prints one line (webhook host and HTTP status) and
+exits 1.
 
 ```
 export NAGIOS_HOSTALIAS="hoge101" NAGIOS_SERVICEDESC="http" NAGIOS_SERVICESTATE="WARNING" NAGIOS_SERVICEOUTPUT="test output"
