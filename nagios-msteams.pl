@@ -31,6 +31,7 @@ my $webhook_missing = "https://outlook.office365.com/webhook/MISSING";
 my $webhook = $webhook_missing;
 my $webhook_file = "";
 my $nagios_url = "";
+my $easynag_url = "";
 my $card = "messagecard";
 # Teams Workflows webhooks accept up to 28 KB; keep a margin
 my $max_bytes = 27 * 1024;
@@ -49,7 +50,7 @@ $nagios{'HOSTNOTES'} = "not defined";
 # Get command-line options
 #
 GetOptions ("webhook=s" => \$webhook, "webhook_file=s" => \$webhook_file, "nagios_url=s" => \$nagios_url,
-            "card=s" => \$card )
+            "card=s" => \$card, "easynag_url=s" => \$easynag_url )
 or die("Error in command line arguments\n");
 die("--card must be messagecard or adaptive\n") unless $card =~ /^(?:adaptive|messagecard)$/;
 
@@ -131,6 +132,15 @@ if ($nagios_url ne '' and $nagios{'SERVICEDESC'} ne 'host status') {
   });
 }
 
+if ($easynag_url ne '') {
+  # MessageCard targets it at iOS only; an Adaptive Card has no per-OS targets
+  push(@links, {
+      'name' => 'View in EasyNag',
+      'os' => 'iOS',
+      'uri' => $easynag_url
+  });
+}
+
 #
 # Format message card (Office 365 connector format; Workflows render it without buttons)
 #
@@ -156,7 +166,7 @@ sub message_card {
     $event{'sections'} = \@sections;
 
     foreach my $link (@links) {
-      my @targets = ({ 'os' => 'default', 'uri' => $link->{'uri'} });
+      my @targets = ({ 'os' => $link->{'os'} // 'default', 'uri' => $link->{'uri'} });
       push(@actions, {
           '@type' => 'OpenUri',
           'name' => $link->{'name'},
