@@ -22,18 +22,15 @@ use HTTP::Status qw(is_client_error);
 use LWP::UserAgent;
 use JSON;
 
-my %event;
 my %nagios;
-my @sections;
-my @actions;
-my @targets;
+my @links;
 my $webhook = "https://outlook.office365.com/webhook/MISSING";
 my $nagios_url = "";
+my $card = "messagecard";
 my %color = ( 'OK' => '008000', 'WARNING' => 'ffff00', 'UNKNOWN' => '808080','CRITICAL' => 'ff0000',
               'UP' => '008000', 'DOWN' => 'ff0000', 'UNREACHABLE' => 'ff8700');
-$event{'title'} = "Nagios Notification";
-$event{'@type'} = "MessageCard";
-$event{'@context'} = "https://schema.org/extensions";
+my %adaptive_color = ( 'OK' => 'Good', 'WARNING' => 'Warning', 'UNKNOWN' => 'Default', 'CRITICAL' => 'Attention',
+                       'UP' => 'Good', 'DOWN' => 'Attention', 'UNREACHABLE' => 'Attention');
 $nagios{'HOSTNOTES'} = "not defined";
 
 
@@ -44,8 +41,9 @@ $nagios{'HOSTNOTES'} = "not defined";
 #
 # Get command-line options
 #
-GetOptions ("webhook=s" => \$webhook, "nagios_url=s" => \$nagios_url )
+GetOptions ("webhook=s" => \$webhook, "nagios_url=s" => \$nagios_url, "card=s" => \$card )
 or die("Error in command line arguments\n");
+die("--card must be messagecard or adaptive\n") unless $card =~ /^(?:adaptive|messagecard)$/;
 
 #
 # Read Nagios events
@@ -57,7 +55,7 @@ while ((my $k, my $v) = each %ENV) {
 }
 
 #
-# Format message card
+# Collect notification fields
 #
 if (not length($nagios{'SERVICESTATE'})) {
     # if service state env is not defnined or empty, event is host notification.
@@ -69,36 +67,118 @@ if (not length($nagios{'SERVICESTATE'})) {
 if (not length($nagios{'HOSTALIAS'})) {
     $nagios{'HOSTALIAS'} = $nagios{'HOSTNAME'};
 }
-$event{'themeColor'} = $color{"$nagios{'SERVICESTATE'}"};
-$event{'title'} = "$nagios{'HOSTALIAS'}/$nagios{'SERVICEDESC'} is $nagios{'SERVICESTATE'}";
-$event{'summary'} = $event{'title'};
-my @facts = ({
-    'name' => "Host:",
-    'value' => "$nagios{'HOSTALIAS'}"
-   },{
-    'name' => "Details:",
-    'value' => "$nagios{'SERVICEOUTPUT'} $nagios{'LONGSERVICEOUTPUT'}"
-});
-my %section = ( 'facts' => \@facts, 'text' => "Host Notes: $nagios{'HOSTNOTES'}" );
-push(@sections, \%section);
-$event{'sections'} = \@sections;
+# plain-text one-liner: MessageCard title, and the text a workflow can post before the card
+my $title = "$nagios{'HOSTALIAS'}/$nagios{'SERVICEDESC'} is $nagios{'SERVICESTATE'}";
+my $output = $nagios{'SERVICEOUTPUT'} // "";
+my $long_output = $nagios{'LONGSERVICEOUTPUT'} // "";
 
 if ($nagios_url ne '') {
-  my %target = (
-        'os' => 'default',
-        'uri' => "$nagios_url/cgi-bin/status.cgi?host=$nagios{'HOSTNAME'}"
-  );
-  push(@targets, \%target);
-  my %link = (
-      '@type' => 'OpenUri',
+  push(@links, {
       'name' => 'View in Nagios',
-      'targets' => \@targets
-  );
-  push(@actions, \%link);
-  $event{'potentialAction'} = \@actions;
+      'uri' => "$nagios_url/cgi-bin/status.cgi?host=$nagios{'HOSTNAME'}"
+  });
 }
-my $json = encode_json \%event;
 
+#
+# Format message card (Office 365 connector format; Workflows render it without buttons)
+#
+sub message_card {
+    my ($long_output) = @_;
+    my %event;
+    my @sections;
+    my @actions;
+    $event{'@type'} = "MessageCard";
+    $event{'@context'} = "https://schema.org/extensions";
+    $event{'themeColor'} = $color{"$nagios{'SERVICESTATE'}"};
+    $event{'title'} = $title;
+    $event{'summary'} = $title;
+    my @facts = ({
+        'name' => "Host:",
+        'value' => "$nagios{'HOSTALIAS'}"
+       },{
+        'name' => "Details:",
+        'value' => "$output $long_output"
+    });
+    my %section = ( 'facts' => \@facts, 'text' => "Host Notes: $nagios{'HOSTNOTES'}" );
+    push(@sections, \%section);
+    $event{'sections'} = \@sections;
+
+    foreach my $link (@links) {
+      my @targets = ({ 'os' => 'default', 'uri' => $link->{'uri'} });
+      push(@actions, {
+          '@type' => 'OpenUri',
+          'name' => $link->{'name'},
+          'targets' => \@targets
+      });
+    }
+    if (@actions) {
+      $event{'potentialAction'} = \@actions;
+    }
+    return \%event;
+}
+
+#
+# Format Adaptive Card for Teams Workflows ("When a Teams webhook request is received").
+# Version 1.4: Teams renders it on desktop and mobile; 1.5 cards are reported to fail
+# with "We're sorry, this card couldn't be displayed" when posted by a workflow.
+#
+sub adaptive_card {
+    my ($long_output) = @_;
+    my $details = $output;
+    $details .= "\n$long_output" if length($long_output);
+    my @facts = ({ 'title' => "Host:", 'value' => "$nagios{'HOSTALIAS'}" });
+    if ($nagios{'SERVICEDESC'} ne 'host status') {
+      push(@facts, { 'title' => "Service:", 'value' => "$nagios{'SERVICEDESC'}" });
+    }
+    push(@facts, { 'title' => "State:", 'value' => "$nagios{'SERVICESTATE'}" });
+    if (length($nagios{'NOTIFICATIONTYPE'})) {
+      push(@facts, { 'title' => "Type:", 'value' => "$nagios{'NOTIFICATIONTYPE'}" });
+    }
+    my @body = ({
+        'type' => 'TextBlock',
+        'text' => $title,
+        'weight' => 'Bolder',
+        'size' => 'Medium',
+        'color' => $adaptive_color{"$nagios{'SERVICESTATE'}"} // 'Default',
+        'wrap' => JSON::true
+       },{
+        'type' => 'FactSet',
+        'facts' => \@facts
+       },{
+        'type' => 'TextBlock',
+        'text' => $details,
+        'wrap' => JSON::true
+       },{
+        'type' => 'TextBlock',
+        'text' => "Host Notes: $nagios{'HOSTNOTES'}",
+        'isSubtle' => JSON::true,
+        'wrap' => JSON::true
+    });
+    my @actions = map { +{ 'type' => 'Action.OpenUrl', 'title' => $_->{'name'}, 'url' => $_->{'uri'} } } @links;
+    my %content = (
+        '$schema' => 'http://adaptivecards.io/schemas/adaptive-card.json',
+        'type' => 'AdaptiveCard',
+        'version' => '1.4',
+        'fallbackText' => $title,
+        'speak' => $title,
+        'msteams' => { 'width' => 'Full' },
+        'body' => \@body
+    );
+    if (@actions) {
+      $content{'actions'} = \@actions;
+    }
+    return {
+        'type' => 'message',
+        'summary' => $title,
+        'attachments' => [{
+            'contentType' => 'application/vnd.microsoft.card.adaptive',
+            'contentUrl' => undef,
+            'content' => \%content
+        }]
+    };
+}
+
+my $json = encode_json($card eq 'messagecard' ? message_card($long_output) : adaptive_card($long_output));
 
 #
 # Make the request
