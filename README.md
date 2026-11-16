@@ -15,6 +15,8 @@ These perl modules need to be installed.
 `--webhook` is required option.
 `--nagios_url` to add a link in the notification.
 
+Long plugin output is cut so the payload stays under 28 KB, the limit of Teams Workflows webhooks.
+
 ```
 export NAGIOS_HOSTALIAS="hoge101" NAGIOS_SERVICEDESC="http" NAGIOS_SERVICESTATE="WARNING" NAGIOS_SERVICEOUTPUT="test output"
 ./nagios-msteams.pl --webhook 'https://your incoming webhook url'

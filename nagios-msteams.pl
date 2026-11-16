@@ -99,6 +99,17 @@ if ($nagios_url ne '') {
 }
 my $json = encode_json \%event;
 
+# Teams Workflows webhooks accept up to 28 KB: cut the long output if the payload is over 27 KB
+my $max_bytes = 27 * 1024;
+my $long_output = $nagios{'LONGSERVICEOUTPUT'} // "";
+while (length($json) > $max_bytes and length($long_output)) {
+    # scale by the encoded size: escaping makes the JSON longer than the text
+    my $keep = int(length($long_output) * ($max_bytes - 1024) / length($json));
+    $long_output = substr($long_output, 0, $keep);
+    $facts[1]{'value'} = "$nagios{'SERVICEOUTPUT'} $long_output\n[truncated]";
+    $json = encode_json \%event;
+}
+
 
 #
 # Make the request
