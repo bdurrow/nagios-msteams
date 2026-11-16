@@ -20,13 +20,13 @@ use Getopt::Long;
 use HTTP::Request::Common qw(POST);
 use HTTP::Status qw(is_client_error);
 use LWP::UserAgent;
+use URI::Escape;
 use JSON;
 
 my %event;
 my %nagios;
 my @sections;
 my @actions;
-my @targets;
 my $webhook = "https://outlook.office365.com/webhook/MISSING";
 my $nagios_url = "";
 my %color = ( 'OK' => '008000', 'WARNING' => 'ffff00', 'UNKNOWN' => '808080','CRITICAL' => 'ff0000',
@@ -83,18 +83,45 @@ my %section = ( 'facts' => \@facts, 'text' => "Host Notes: $nagios{'HOSTNOTES'}"
 push(@sections, \%section);
 $event{'sections'} = \@sections;
 
+# escape a value for a link query string; works on raw bytes and on decoded (character) strings
+sub url_param {
+    my ($value) = @_;
+    utf8::encode($value) if utf8::is_utf8($value);
+    return uri_escape($value);
+}
+
 if ($nagios_url ne '') {
+  my @targets;
   my %target = (
         'os' => 'default',
-        'uri' => "$nagios_url/cgi-bin/status.cgi?host=$nagios{'HOSTNAME'}"
+        'uri' => "$nagios_url/cgi-bin/status.cgi?host=" . url_param($nagios{'HOSTNAME'})
   );
   push(@targets, \%target);
   my %link = (
       '@type' => 'OpenUri',
-      'name' => 'View in Nagios',
+      'name' => 'View Host in Nagios',
       'targets' => \@targets
   );
   push(@actions, \%link);
+}
+
+if ($nagios_url ne '' and $nagios{'SERVICEDESC'} ne 'host status') {
+  my @targets;
+  my %target = (
+        'os' => 'default',
+        'uri' => "$nagios_url/cgi-bin/extinfo.cgi?type=2&host=" . url_param($nagios{'HOSTNAME'})
+               . "&service=" . url_param($nagios{'SERVICEDESC'})
+  );
+  push(@targets, \%target);
+  my %link = (
+      '@type' => 'OpenUri',
+      'name' => 'View Service in Nagios',
+      'targets' => \@targets
+  );
+  push(@actions, \%link);
+}
+
+if (@actions) {
   $event{'potentialAction'} = \@actions;
 }
 my $json = encode_json \%event;
